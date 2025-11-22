@@ -1,0 +1,37 @@
+type Query {
+  users: [User!]!
+  posts: [Post!]!
+  profiles: [Profile!]!
+  memberTypes: [MemberType!]!
+}
+
+type User {
+  id: ID!
+  name: String!
+  balance: Float!
+  profile: Profile
+  posts: [Post!]!
+  userSubscribedTo: [User!]!
+  subscribedToUser: [User!]!
+}
+
+type Post {
+  id: ID!
+  title: String!
+  content: String
+  author: User!
+}
+
+type Profile {
+  id: ID!
+  isMale: Boolean!
+  yearOfBirth: Int!
+  user: User!
+  memberType: MemberType!
+}
+
+type MemberType {
+  id: String!
+  discount: Float!
+  postsLimitPerMonth: Int!
+}
