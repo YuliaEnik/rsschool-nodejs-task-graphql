@@ -20,10 +20,8 @@ const plugin: FastifyPluginAsyncTypebox = async (fastify) => {
     async handler(req) {
       const { query, variables } = req.body;
 
-      // Parse the query
       const document = parse(query);
 
-      // Validate with depth limit
       const validationErrors = validate(schema, document, [depthLimit(5)]);
 
       if (validationErrors.length > 0) {

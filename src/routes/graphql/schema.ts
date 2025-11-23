@@ -47,7 +47,6 @@ const MemberType = new GraphQLObjectType<MemberTypeParent, Context>({
   },
 });
 
-// Создаем геттеры для ленивой инициализации
 const getUserType = (): GraphQLObjectType<UserParent, Context> => {
   if (!getUserType.instance) {
     getUserType.instance = new GraphQLObjectType<UserParent, Context>({
@@ -59,37 +58,25 @@ const getUserType = (): GraphQLObjectType<UserParent, Context> => {
         profile: {
           type: getProfileType(),
           resolve: (parent, _args, ctx: Context) => {
-            return ctx.prisma.profile.findUnique({ 
-              where: { userId: parent.id } 
-            });
+            return ctx.profileLoader.load(parent.id);
           },
         },
         posts: {
           type: new GraphQLList(getPostType()),
           resolve: (parent, _args, ctx: Context) => {
-            return ctx.prisma.post.findMany({ 
-              where: { authorId: parent.id } 
-            });
+            return ctx.postLoader.load(parent.id);
           },
         },
         userSubscribedTo: {
           type: new GraphQLList(getUserType()),
           resolve: async (parent, _args, ctx: Context) => {
-            const subscriptions = await ctx.prisma.subscribersOnAuthors.findMany({
-              where: { subscriberId: parent.id },
-              include: { author: true },
-            });
-            return subscriptions.map(sub => sub.author);
+            return ctx.subscribedToLoader.load(parent.id);
           },
         },
         subscribedToUser: {
           type: new GraphQLList(getUserType()),
           resolve: async (parent, _args, ctx: Context) => {
-            const subscriptions = await ctx.prisma.subscribersOnAuthors.findMany({
-              where: { authorId: parent.id },
-              include: { subscriber: true },
-            });
-            return subscriptions.map(sub => sub.subscriber);
+            return ctx.subscribersLoader.load(parent.id);
           },
         },
       }),
@@ -97,6 +84,7 @@ const getUserType = (): GraphQLObjectType<UserParent, Context> => {
   }
   return getUserType.instance;
 };
+
 getUserType.instance = null as GraphQLObjectType<UserParent, Context> | null;
 
 const getPostType = (): GraphQLObjectType<PostParent, Context> => {
@@ -110,9 +98,7 @@ const getPostType = (): GraphQLObjectType<PostParent, Context> => {
         author: {
           type: getUserType(),
           resolve: (parent, _args, ctx: Context) => {
-            return ctx.prisma.user.findUnique({ 
-              where: { id: parent.authorId } 
-            });
+            return ctx.userLoader.load(parent.authorId);
           },
         },
       }),
@@ -145,9 +131,7 @@ const getProfileType = (): GraphQLObjectType<ProfileParent, Context> => {
               return null;
             }
             
-            return ctx.prisma.memberType.findUnique({ 
-              where: { id: parent.memberTypeId } 
-            });
+            return ctx.memberTypeLoader.load(parent.memberTypeId);
           },
         },
       }),
@@ -157,7 +141,6 @@ const getProfileType = (): GraphQLObjectType<ProfileParent, Context> => {
 };
 getProfileType.instance = null as GraphQLObjectType<ProfileParent, Context> | null;
 
-// Создаем константы
 const User = getUserType();
 const Post = getPostType();
 const Profile = getProfileType();
