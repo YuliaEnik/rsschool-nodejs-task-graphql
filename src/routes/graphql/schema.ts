@@ -1,14 +1,15 @@
-import { GraphQLSchema, GraphQLObjectType, GraphQLList, GraphQLString, GraphQLFloat, GraphQLBoolean, GraphQLInt } from 'graphql';
+import {
+  GraphQLSchema,
+  GraphQLObjectType,
+  GraphQLList,
+  GraphQLString,
+  GraphQLFloat,
+  GraphQLBoolean,
+  GraphQLInt,
+} from 'graphql';
 import { UUIDType } from './types/uuid.js';
 import type { Context } from './context.js';
-
-interface ProfileParent {
-  id: string;
-  isMale: boolean;
-  yearOfBirth: number;
-  userId: string;
-  memberTypeId: string;
-}
+import { MemberTypeIdScalar } from './scalars.js';
 
 interface UserParent {
   id: string;
@@ -23,7 +24,21 @@ interface PostParent {
   authorId: string;
 }
 
-const MemberType = new GraphQLObjectType({
+interface ProfileParent {
+  id: string;
+  isMale: boolean;
+  yearOfBirth: number;
+  userId: string;
+  memberTypeId: string;
+}
+
+interface MemberTypeParent {
+  id: string;
+  discount: number;
+  postsLimitPerMonth: number;
+}
+
+const MemberType = new GraphQLObjectType<MemberTypeParent, Context>({
   name: 'MemberType',
   fields: {
     id: { type: GraphQLString },
@@ -32,83 +47,122 @@ const MemberType = new GraphQLObjectType({
   },
 });
 
-const User = new GraphQLObjectType({
-  name: 'User',
-  fields: () => ({
-    id: { type: UUIDType },
-    name: { type: GraphQLString },
-    balance: { type: GraphQLFloat },
-    profile: {
-      type: Profile,
-      resolve: (parent: UserParent, _args, ctx: Context) => {
-        return ctx.prisma.profile.findUnique({ 
-          where: { userId: parent.id } 
-        });
-      },
-    },
-    posts: {
-      type: new GraphQLList(Post),
-      resolve: (parent: UserParent, _args, ctx: Context) => {
-        return ctx.prisma.post.findMany({ 
-          where: { authorId: parent.id } 
-        });
-      },
-    },
-    userSubscribedTo: {
-      type: new GraphQLList(User),
-      resolve: () => [],
-    },
-    subscribedToUser: {
-      type: new GraphQLList(User),
-      resolve: () => [],
-    },
-  }),
-});
+// Создаем геттеры для ленивой инициализации
+const getUserType = (): GraphQLObjectType<UserParent, Context> => {
+  if (!getUserType.instance) {
+    getUserType.instance = new GraphQLObjectType<UserParent, Context>({
+      name: 'User',
+      fields: () => ({
+        id: { type: UUIDType },
+        name: { type: GraphQLString },
+        balance: { type: GraphQLFloat },
+        profile: {
+          type: getProfileType(),
+          resolve: (parent, _args, ctx: Context) => {
+            return ctx.prisma.profile.findUnique({ 
+              where: { userId: parent.id } 
+            });
+          },
+        },
+        posts: {
+          type: new GraphQLList(getPostType()),
+          resolve: (parent, _args, ctx: Context) => {
+            return ctx.prisma.post.findMany({ 
+              where: { authorId: parent.id } 
+            });
+          },
+        },
+        userSubscribedTo: {
+          type: new GraphQLList(getUserType()),
+          resolve: async (parent, _args, ctx: Context) => {
+            const subscriptions = await ctx.prisma.subscribersOnAuthors.findMany({
+              where: { subscriberId: parent.id },
+              include: { author: true },
+            });
+            return subscriptions.map(sub => sub.author);
+          },
+        },
+        subscribedToUser: {
+          type: new GraphQLList(getUserType()),
+          resolve: async (parent, _args, ctx: Context) => {
+            const subscriptions = await ctx.prisma.subscribersOnAuthors.findMany({
+              where: { authorId: parent.id },
+              include: { subscriber: true },
+            });
+            return subscriptions.map(sub => sub.subscriber);
+          },
+        },
+      }),
+    });
+  }
+  return getUserType.instance;
+};
+getUserType.instance = null as GraphQLObjectType<UserParent, Context> | null;
 
-const Post = new GraphQLObjectType({
-  name: 'Post',
-  fields: {
-    id: { type: UUIDType },
-    title: { type: GraphQLString },
-    content: { type: GraphQLString },
-    author: {
-      type: User,
-      resolve: (parent: PostParent, _args, ctx: Context) => {
-        return ctx.prisma.user.findUnique({ 
-          where: { id: parent.authorId } 
-        });
-      },
-    },
-  },
-});
+const getPostType = (): GraphQLObjectType<PostParent, Context> => {
+  if (!getPostType.instance) {
+    getPostType.instance = new GraphQLObjectType<PostParent, Context>({
+      name: 'Post',
+      fields: () => ({
+        id: { type: UUIDType },
+        title: { type: GraphQLString },
+        content: { type: GraphQLString },
+        author: {
+          type: getUserType(),
+          resolve: (parent, _args, ctx: Context) => {
+            return ctx.prisma.user.findUnique({ 
+              where: { id: parent.authorId } 
+            });
+          },
+        },
+      }),
+    });
+  }
+  return getPostType.instance;
+};
+getPostType.instance = null as GraphQLObjectType<PostParent, Context> | null;
 
-const Profile = new GraphQLObjectType({
-  name: 'Profile',
-  fields: {
-    id: { type: UUIDType },
-    isMale: { type: GraphQLBoolean },
-    yearOfBirth: { type: GraphQLInt },
-    user: {
-      type: User,
-      resolve: (parent: ProfileParent, _args, ctx: Context) => {
-        return ctx.prisma.user.findUnique({ 
-          where: { id: parent.userId } 
-        });
-      },
-    },
-    memberType: {
-      type: MemberType,
-      resolve: (parent: ProfileParent, _args, ctx: Context) => {
-        if (!parent.memberTypeId) return null;
-        return ctx.prisma.memberType.findUnique({ 
-          where: { id: parent.memberTypeId } 
-        });
-      },
-    },
-  },
-});
+const getProfileType = (): GraphQLObjectType<ProfileParent, Context> => {
+  if (!getProfileType.instance) {
+    getProfileType.instance = new GraphQLObjectType<ProfileParent, Context>({
+      name: 'Profile',
+      fields: () => ({
+        id: { type: UUIDType },
+        isMale: { type: GraphQLBoolean },
+        yearOfBirth: { type: GraphQLInt },
+        user: {
+          type: getUserType(),
+          resolve: (parent, _args, ctx: Context) => {
+            return ctx.prisma.user.findUnique({ 
+              where: { id: parent.userId } 
+            });
+          },
+        },
+        memberType: {
+          type: MemberType,
+          resolve: async (parent, _args, ctx: Context) => {
+            if (!parent.memberTypeId) {
+              return null;
+            }
+            
+            return ctx.prisma.memberType.findUnique({ 
+              where: { id: parent.memberTypeId } 
+            });
+          },
+        },
+      }),
+    });
+  }
+  return getProfileType.instance;
+};
+getProfileType.instance = null as GraphQLObjectType<ProfileParent, Context> | null;
 
-const Query = new GraphQLObjectType({
+// Создаем константы
+const User = getUserType();
+const Post = getPostType();
+const Profile = getProfileType();
+
+const Query = new GraphQLObjectType<unknown, Context>({
   name: 'Query',
   fields: {
     users: {
@@ -122,7 +176,7 @@ const Query = new GraphQLObjectType({
       args: {
         id: { type: UUIDType },
       },
-      resolve: (_parent, args, ctx: Context) => {
+      resolve: (_parent, args: { id: string }, ctx: Context) => {
         return ctx.prisma.user.findUnique({
           where: { id: args.id },
         });
@@ -139,7 +193,7 @@ const Query = new GraphQLObjectType({
       args: {
         id: { type: UUIDType },
       },
-      resolve: (_parent, args, ctx: Context) => {
+      resolve: (_parent, args: { id: string }, ctx: Context) => {
         return ctx.prisma.post.findUnique({
           where: { id: args.id },
         });
@@ -156,7 +210,7 @@ const Query = new GraphQLObjectType({
       args: {
         id: { type: UUIDType },
       },
-      resolve: (_parent, args, ctx: Context) => {
+      resolve: (_parent, args: { id: string }, ctx: Context) => {
         return ctx.prisma.profile.findUnique({
           where: { id: args.id },
         });
@@ -171,9 +225,9 @@ const Query = new GraphQLObjectType({
     memberType: {
       type: MemberType,
       args: {
-        id: { type: GraphQLString },
+        id: { type: MemberTypeIdScalar },
       },
-      resolve: (_parent, args, ctx: Context) => {
+      resolve: async (_parent, args: { id: string }, ctx: Context) => {
         return ctx.prisma.memberType.findUnique({
           where: { id: args.id },
         });
